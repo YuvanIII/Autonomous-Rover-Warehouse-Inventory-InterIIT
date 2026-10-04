@@ -1,206 +1,114 @@
-# Autonomous Rover for Warehouse Inventory — Embedded Systems 🏭⚙️
+# Autonomous Warehouse Inventory Rover: Embedded Systems
 
-> Real-time embedded firmware and electronics for an autonomous warehouse inventory scanning rover — built for Inter IIT Tech Meet 2025.
+Firmware and electronics for an autonomous rover that navigates a warehouse and scans QR codes across multi-height racks. Built for Inter IIT Tech Meet 2025.
 
-[![STM32](https://img.shields.io/badge/MCU-STM32%20Nucleo%20F446RE-blue.svg)](https://www.st.com/en/microcontrollers-microprocessors/stm32f446re.html)
-[![Micro-ROS](https://img.shields.io/badge/Middleware-Micro--ROS-brightgreen.svg)](https://micro.ros.org/)
-[![FreeRTOS](https://img.shields.io/badge/RTOS-FreeRTOS-orange.svg)](https://www.freertos.org/)
-[![C/C++](https://img.shields.io/badge/Language-C%2FC%2B%2B-blue.svg)](https://isocpp.org/)
-[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+![MCU](https://img.shields.io/badge/MCU-STM32F446RE-03234B?style=flat-square&logo=stmicroelectronics&logoColor=white)
+![RTOS](https://img.shields.io/badge/RTOS-FreeRTOS-5D9C3F?style=flat-square)
+![Middleware](https://img.shields.io/badge/Middleware-micro--ROS-22314E?style=flat-square&logo=ros&logoColor=white)
+![ROS 2](https://img.shields.io/badge/ROS_2-Jazzy-22314E?style=flat-square&logo=ros&logoColor=white)
+![License](https://img.shields.io/badge/License-MIT-lightgrey?style=flat-square)
 
----
+## Scope
 
-## 🧠 About This Repository
+This repository covers the embedded layer of the rover: real-time motor control, Z-axis actuation, encoder feedback, power electronics, PCB design, and the micro-ROS link between the STM32 and a Raspberry Pi 5 running ROS 2. SLAM, Nav2, and the QR vision pipeline run on the Pi and were developed separately by other team members.
 
-This repository contains the **embedded systems and electronics** work for the autonomous warehouse inventory rover built at **Inter IIT Tech Meet 2025**.
+## My Contributions
 
-The rover autonomously navigates a warehouse and scans QR codes across multi-height racks. This repo covers the hardware brain of the system — real-time motor control, PCB design, power electronics, Z-axis actuation, encoder feedback, and Micro-ROS communication bridging the STM32 to the Raspberry Pi 5 running ROS 2.
+- **PCB design:** power management board, H-bridge motor driver, quadrature encoder interface, and protection circuitry, with attention to grounding and EMI
+- **Firmware:** FreeRTOS application on the STM32F446RE running as a micro-ROS node
+- **Drive control:** PID velocity loop per wheel with interrupt-driven quadrature encoder feedback
+- **Z-axis control:** non-blocking stepper state machine driving a NEMA 23 lead-screw axis through a DM556 driver
+- **Safety:** independent watchdog (IWDG) and command timeout that stop the motors on MCU hang or loss of ROS communication
+- **Bring-up and validation:** oscilloscope and logic analyzer debugging; UART, I2C, and SPI testing against the Raspberry Pi
 
-> **Note:** The full system also includes SLAM, Navigation (Nav2), and a QR vision pipeline running on the Raspberry Pi 5 — handled separately by other team members.
-
----
-
-## ✨ My Contributions
-
-- **Custom PCB Design** — Power management board, motor driver circuits (H-bridge), quadrature encoder interfaces, and safety circuits with proper grounding and EMI considerations
-- **STM32 Embedded Firmware** — Real-time control on STM32 Nucleo F446RE using FreeRTOS and Micro-ROS
-- **DC Motor Control** — PID velocity control loop with interrupt-based quadrature encoder feedback
-- **Z-Axis Stepper Control** — Non-blocking stepper state machine using `micros()` timers for NEMA 23 lead-screw actuation
-- **Micro-ROS Integration** — STM32 publishes encoder odometry and subscribes to `/cmd_vel` and `/cmd_stepper` topics via micro-ROS agent on the Pi
-- **Safety Systems** — Independent IWDG (watchdog) timer that cuts motors automatically on MCU hang or ROS communication loss
-- **Validation & Debugging** — Hardware bring-up and signal validation using oscilloscopes and logic analyzers; UART/I2C/SPI interface testing with Raspberry Pi
-
----
-
-## 🔧 Hardware
-
-### Microcontroller
-| Parameter | Value |
-|---|---|
-| MCU | STM32 Nucleo F446RE |
-| Clock Speed | 180 MHz |
-| FPU | Yes (for PID computation) |
-| Communication | UART (micro-ROS), I2C, SPI |
-
-### Motor System
-| Component | Specification |
-|---|---|
-| DC Drive Motors | Differential drive, PWM-controlled via H-bridge |
-| Wheel Encoders | Quadrature rotary encoders (interrupt-driven) |
-| Z-Axis Motor | NEMA 23 PR57HS51-2804-R Stepper |
-| Stepper Driver | DM556 Microstepper Driver |
-| Z-Axis Power | 22.2V |
-| Lead Screw Pitch | 2mm (8.23mm/rotation) |
-| Z Travel | 1.4m (170 rotations) |
-
-### Power & PCB
-- Custom power management PCB with proper grounding planes and EMI shielding
-- H-bridge motor driver circuits for DC wheel motors
-- Quadrature encoder interface circuits
-- Safety circuits with fusing and reverse-polarity protection
-- Boost converter for voltage step-up
-- UBEC voltage regulator for Raspberry Pi power supply
-- Power Distribution Board (PDB)
-
----
-
-## 💻 Firmware Architecture
+## System Architecture
 
 ```
-FreeRTOS Tasks
-├── Task: cmd_vel Subscriber        ← Receives velocity from ROS 2 Nav2
-│     └── PID Loop (50ms)          ← Compares target vs actual velocity
-│           └── PWM Output         ← Drives H-bridge / DC motors
-│
-├── Task: Encoder Publisher         ← Reads quadrature ticks via interrupt
-│     └── /odom topic              ← Sends real-time odometry to Pi
-│
-├── Task: Stepper Controller        ← Receives /cmd_stepper from Pi
-│     └── State Machine            ← Non-blocking micros() pulse generation
-│           └── NEMA 23 Z-axis     ← Up/Down actuation (170 rotations)
-│
-└── Watchdog Timer (IWDG)          ← Auto motor cutoff on hang/ROS loss
+Raspberry Pi 5 (ROS 2 Jazzy: Nav2, SLAM, vision)
+        │  UART 115200, micro-ROS agent
+        ▼
+STM32F446RE (FreeRTOS + micro-ROS)
+  ├── Drive task     /cmd_vel → PID (50 ms) → PWM → H-bridge → DC motors
+  ├── Odometry task  encoder ISR → tick count → /odom
+  ├── Stepper task   /cmd_stepper → step/dir state machine → DM556 → NEMA 23
+  └── Safety         IWDG + command timeout → motor cutoff
 ```
 
----
+## ROS Interface
 
-## 🔌 Micro-ROS Communication
-
-The STM32 runs as a **Micro-ROS node** communicating with the Raspberry Pi 5 over UART via the micro-ROS agent.
-
-| Direction | Topic | Message Type | Description |
+| Direction | Topic | Type | Purpose |
 |---|---|---|---|
-| Subscribe | `/cmd_vel` | `TwistStamped` | Velocity commands from Nav2 |
-| Subscribe | `/cmd_stepper` | `Int32` | Z-axis stepper commands |
-| Publish | `/odom` | `Odometry` | Wheel encoder odometry |
+| Subscribe | `/cmd_vel` | `geometry_msgs/TwistStamped` | Velocity commands from Nav2 |
+| Subscribe | `/cmd_stepper` | `std_msgs/Int32` | Z-axis position commands |
+| Publish | `/odom` | `nav_msgs/Odometry` | Wheel odometry |
 
----
+## Design Rationale
 
-## ⚡ Why Micro-ROS on STM32?
+Low-level control runs on the MCU rather than the Pi for three reasons. The control loop needs a fixed period that the Linux scheduler cannot guarantee under SLAM and vision load. Encoder edges need hardware interrupts, since polling GPIO from Linux misses ticks at speed. And a dedicated MCU with a hardware watchdog can stop the motors independently if the Pi or the link fails.
 
-| Requirement | Standard ROS 2 on Linux | Micro-ROS on STM32 |
-|---|---|---|
-| Real-Time Determinism | 10–100ms jitter (Linux scheduler) | Hard 50ms guarantee |
-| Hardware Interrupts | GPIO latency → missed encoder ticks | Zero-latency interrupts |
-| Safety & Redundancy | Motors may keep running on crash | IWDG watchdog auto-cutoff |
-| CPU Overhead | High I/O usage steals from Vision/SLAM | Distributed — offloads Pi completely |
+## Hardware
 
----
+| Subsystem | Component |
+|---|---|
+| MCU | STM32 Nucleo-F446RE (Cortex-M4F, 180 MHz, hardware FPU) |
+| Drive | Differential drive, brushed DC motors, custom H-bridge, PWM |
+| Feedback | Quadrature rotary encoders, interrupt-driven |
+| Z-axis motor | NEMA 23 stepper (PR57HS51-2804-R) |
+| Z-axis driver | DM556 microstepping driver, 22.2 V supply |
+| Z-axis mechanics | Lead screw, 8.23 mm travel per revolution, 1.4 m stroke (170 rev) |
+| Power | Custom power management PCB, power distribution board, boost converter, UBEC for the Pi |
+| Protection | Fusing, reverse-polarity protection |
 
-## 🚀 Getting Started
+## Performance
 
-### Prerequisites
+| Metric | Value |
+|---|---|
+| Control loop period | 50 ms |
+| Encoder tracking | No missed ticks up to 0.5 m/s |
+| Z-axis stroke | 1.4 m |
+| Watchdog timeout | 500 ms (configurable) |
+| Link | UART, 115200 baud |
 
-- STM32CubeIDE (for building and flashing firmware)
-- micro-ROS agent running on Raspberry Pi 5 (or host PC)
-- ROS 2 Jazzy on the companion computer
+## Build and Flash
 
-### Flashing the Firmware
-
-1. **Clone the repository:**
+Requirements: STM32CubeIDE, ST-LINK (onboard Nucleo), ROS 2 Jazzy with the micro-ROS agent on the Pi or host.
 
 ```bash
 git clone https://github.com/YuvanIII/autonomous-rover-warehouse-embedded.git
-cd autonomous-rover-warehouse-embedded
 ```
 
-2. **Open in STM32CubeIDE:**
+1. In STM32CubeIDE: File → Open Projects from File System → select `firmware/`
+2. Project → Build All
+3. Run → Debug with the Nucleo connected over USB
 
-```
-File → Open Projects from File System → select /firmware folder
-```
-
-3. **Build and flash:**
-
-```
-Project → Build All
-Run → Debug (with STLink connected to Nucleo F446RE)
-```
-
-### Starting Micro-ROS Agent (on Raspberry Pi)
+Start the agent on the Pi:
 
 ```bash
 ros2 run micro_ros_agent micro_ros_agent serial --dev /dev/ttyACM0 -b 115200
 ```
 
-Once connected, the STM32 will automatically start publishing `/odom` and listening to `/cmd_vel` and `/cmd_stepper`.
+Once the agent connects, the MCU starts publishing `/odom` and accepting `/cmd_vel` and `/cmd_stepper`.
 
----
-
-## 📂 Project Structure
+## Repository Structure
 
 ```
-autonomous-rover-warehouse-embedded/
-├── firmware/
-│   ├── Core/
-│   │   ├── Src/
-│   │   │   ├── main.c                  # FreeRTOS task init
-│   │   │   ├── motor_control.c         # PID + PWM motor driver
-│   │   │   ├── encoder.c               # Quadrature encoder ISR
-│   │   │   ├── stepper_control.c       # Z-axis state machine
-│   │   │   └── microros_node.c         # Micro-ROS publishers/subscribers
-│   │   └── Inc/
-│   │       ├── motor_control.h
-│   │       ├── encoder.h
-│   │       └── stepper_control.h
-│   └── CMakeLists.txt
-├── pcb/
-│   ├── power_management/               # Power PCB design files
-│   ├── motor_driver/                   # H-bridge PCB design files
-│   └── encoder_interface/             # Encoder interface circuits
-├── docs/
-│   ├── schematics/                     # Circuit schematics
-│   └── component_selection.md         # BOM and selection rationale
-└── README.md
+firmware/
+  Core/Src/
+    main.c              FreeRTOS and peripheral init
+    motor_control.c     PID and PWM drive
+    encoder.c           Quadrature encoder ISR
+    stepper_control.c   Z-axis state machine
+    microros_node.c     Publishers and subscribers
+  Core/Inc/             Headers
+pcb/
+  power_management/
+  motor_driver/
+  encoder_interface/
+docs/
+  schematics/
+  component_selection.md   BOM and selection rationale
 ```
 
----
+## License
 
-## 📊 Performance
-
-| Metric | Value |
-|---|---|
-| Control Loop Period | 50ms (hard real-time) |
-| Encoder Resolution | Zero missed ticks up to 0.5 m/s |
-| Z-Axis Travel | 1.4m (170 stepper rotations) |
-| Z-Axis Resolution | 8.23mm/rotation (2mm pitch lead screw) |
-| Watchdog Timeout | Configurable (default 500ms) |
-| UART Baud Rate | 115200 bps (micro-ROS) |
-
----
-
-## 🤝 Contributing
-
-Contributions are welcome and greatly appreciated.
-
-1. Fork the Project
-2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the Branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
-
----
-
-## 📜 License
-
-Distributed under the MIT License. See `LICENSE` for more information.
+MIT. See `LICENSE`.
